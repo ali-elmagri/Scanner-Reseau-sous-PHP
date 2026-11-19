@@ -1,103 +1,131 @@
 <?php
+require __DIR__ . '/inc/securite.php';
+require __DIR__ . '/config.php';
+exigerConnexion();
+
+// Le scan ne se lance que depuis le formulaire de l'application (POST + jeton CSRF)
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !verifierCsrf()) {
+    header('Location: index.php');
+    exit;
+}
+
+// Un scan de réseau complet peut durer plusieurs minutes
+set_time_limit(900);
+
+// Taille maximale d'un réseau scanné : /24, soit 256 adresses
+const PREFIXE_MINIMUM = 24;
+
 // =======================
 // Fonctions utilitaires
 // =======================
 
-function obtenirHotesVifs($plage_reseau) {
-    $sortie = shell_exec("sudo /usr/bin/nmap -sn $plage_reseau");
-    if (!$sortie) return [];
-    preg_match_all("/Nmap scan report for ([\d\.]+)/", $sortie, $correspondances);
+// Lance Nmap avec une liste d'arguments, chacun protégé par escapeshellarg().
+// --privileged : Nmap utilise les capacités réseau accordées au binaire (setcap)
+// au lieu de demander les droits root, ce qui évite d'exécuter Nmap avec sudo.
+// -n : pas de résolution DNS, pour des sorties plus rapides et plus simples à analyser.
+function executerNmap(array $arguments): string
+{
+    $commande = '/usr/bin/nmap --privileged -n';
+    foreach ($arguments as $argument) {
+        $commande .= ' ' . escapeshellarg((string)$argument);
+    }
+    return (string)shell_exec($commande . ' 2>/dev/null');
+}
+
+// Vérifie qu'une plage est au format IPv4/CIDR (ex : 192.168.1.0/24) et pas trop grande
+function estReseauValide($plage): bool
+{
+    if (!is_string($plage) || !preg_match('#^(\d{1,3}(?:\.\d{1,3}){3})/(\d{1,2})$#', $plage, $m)) {
+        return false;
+    }
+    $prefixe = (int)$m[2];
+    return filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false
+        && $prefixe >= PREFIXE_MINIMUM && $prefixe <= 32;
+}
+
+// Découverte des hôtes actifs (ping scan, sans scan de ports)
+function obtenirHotesVifs(string $plage_reseau): array
+{
+    $sortie = executerNmap(['-sn', $plage_reseau]);
+    preg_match_all('/Nmap scan report for (\d{1,3}(?:\.\d{1,3}){3})/', $sortie, $correspondances);
     return $correspondances[1] ?? [];
 }
 
-function detecterOS($adresse_ip) {
-    $sortie = shell_exec("sudo /usr/bin/nmap -O --osscan-guess -T4 $adresse_ip");
-    foreach ([
-        "/Running:\s*([^\n\r]*)/",
-        "/OS details:\s*([^\n\r]*)/",
-        "/Aggressive OS guesses:\s*([^\n\r]*)/"
-    ] as $motif) {
+// Analyse complète d'un hôte en un seul appel à Nmap : système d'exploitation (-O)
+// et services (-sV). Retourne ['os' => ..., 'ports' => [['port' => .., 'service' => ..], ...]]
+function analyserHote(string $adresse_ip): array
+{
+    $sortie = executerNmap(['-O', '--osscan-guess', '-sV', '-T4', $adresse_ip]);
+
+    $os = 'Inconnu';
+    foreach (['/Running:\s*([^\n\r]*)/', '/OS details:\s*([^\n\r]*)/', '/Aggressive OS guesses:\s*([^\n\r]*)/'] as $motif) {
         if (preg_match($motif, $sortie, $correspondance)) {
-            // Supprime tout ce qui suit un pourcentage (ex: "Linux 3.2 - 4.9 (93%)" => "Linux 3.2 - 4.9")
-            return preg_replace('/\s*\(\d+%\).*/', '', explode(',', $correspondance[1])[0]);
+            // Garde la première proposition, sans le pourcentage (ex : "Linux 3.2 - 4.9 (93%)")
+            $os = trim(preg_replace('/\s*\(\d+%\).*/', '', explode(',', $correspondance[1])[0]));
+            break;
         }
     }
-    return "Inconnu";
-}
 
-function detecterPortsOuverts($adresse_ip) {
-    $sortie = shell_exec("sudo /usr/bin/nmap -sV $adresse_ip");
-    $lignes = explode("\n", $sortie);
     $ports = [];
-    $parsing = false;
+    preg_match_all('/^(\d+)\/tcp\s+open\s+(\S+)/m', $sortie, $lignes, PREG_SET_ORDER);
     foreach ($lignes as $ligne) {
-        if (preg_match("/^PORT\s+STATE\s+SERVICE/", $ligne)) {
-            $parsing = true;
-            continue;
-        }
-        if ($parsing && preg_match("/^(\d+)\/tcp\s+open\s+(\S+)/", $ligne, $correspondance)) {
-            $ports[] = [
-                "port" => $correspondance[1],
-                "service" => $correspondance[2]
-            ];
-        }
+        $ports[] = ['port' => (int)$ligne[1], 'service' => $ligne[2]];
     }
-    return $ports;
+
+    return ['os' => $os, 'ports' => $ports];
+}
+
+// Neutralise les cellules qui seraient interprétées comme des formules par un tableur
+function celluleCsv(string $valeur): string
+{
+    return preg_match('/^[=+\-@\t\r]/', $valeur) ? "'" . $valeur : $valeur;
 }
 
 // =======================
-// Traitement des paramètres (francisés)
+// Lecture et validation des paramètres
 // =======================
 
-$type_scan = $_GET['type_scan'] ?? '';
-$ip = $_GET['ip'] ?? null;
-$reseau = $_GET['reseau'] ?? null;
-$port = $_GET['port'] ?? null;
-$reseau_defaut = '10.129.59.0/24';
+$type_scan = (string)($_POST['type_scan'] ?? '');
+$ip = $_POST['ip'] ?? null;
+$reseau = $_POST['reseau'] ?? RESEAU_DEFAUT;
+$port = filter_var($_POST['port'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 65535]]);
 
 $liste_hotes = [];
 $erreur_scan = null;
 
 if ($type_scan === 'unique') {
-    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
-        $erreur_scan = "Adresse IP invalide.";
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        $erreur_scan = 'Adresse IP invalide.';
     } else {
-        $hotes_vifs = obtenirHotesVifs($ip . "/32");
-        if (empty($hotes_vifs)) {
-            $liste_hotes = [];
-        } else {
-            $liste_hotes = [$ip];
-        }
+        $liste_hotes = obtenirHotesVifs($ip . '/32');
     }
-} elseif ($type_scan === 'reseau' && $reseau) {
-    $liste_hotes = obtenirHotesVifs($reseau);
-} elseif ($type_scan === 'port' && $port && is_numeric($port)) {
-    $reseau_a_scanner = $reseau ?: $reseau_defaut;
-    $liste_hotes = obtenirHotesVifs($reseau_a_scanner);
+} elseif ($type_scan === 'reseau' || $type_scan === 'port') {
+    if (!estReseauValide($reseau)) {
+        $erreur_scan = 'Réseau invalide (format attendu : 192.168.1.0/24, /' . PREFIXE_MINIMUM . ' au maximum).';
+    } elseif ($type_scan === 'port' && $port === false) {
+        $erreur_scan = 'Port invalide (1 à 65535).';
+    } else {
+        $liste_hotes = obtenirHotesVifs($reseau);
+    }
 } else {
-    $erreur_scan = "Paramètres invalides";
+    $erreur_scan = 'Type de scan inconnu.';
 }
 
 // =======================
-// Affichage pour le scan de port spécifique 
+// Scan d'un port précis sur tous les hôtes actifs (un seul appel à Nmap)
 // =======================
 
-if ($type_scan === 'port' && $port && is_numeric($port) && !$erreur_scan) {
+if ($type_scan === 'port' && !$erreur_scan) {
+    $reseau_a_scanner = $reseau;
+    $ouverts = [];
+    if ($liste_hotes) {
+        $sortie = executerNmap(array_merge(['-p', $port, '-T4', '-oG', '-'], $liste_hotes));
+        preg_match_all('/^Host: (\S+).*Ports: ' . $port . '\/open\//m', $sortie, $correspondances);
+        $ouverts = array_flip($correspondances[1]);
+    }
     $resultats_scan_port = [];
     foreach ($liste_hotes as $hote) {
-        $sortie = shell_exec("sudo /usr/bin/nmap -p " . escapeshellarg($port) . " -T4 " . escapeshellarg($hote));
-        $ouvert = false;
-        foreach (explode("\n", $sortie) as $ligne) {
-            if (preg_match("/^$port\/tcp\s+open/", $ligne)) {
-                $ouvert = true;
-                break;
-            }
-        }
-        $resultats_scan_port[] = [
-            'hote' => $hote,
-            'port' => $port,
-            'ouvert' => $ouvert
-        ];
+        $resultats_scan_port[] = ['hote' => $hote, 'port' => $port, 'ouvert' => isset($ouverts[$hote])];
     }
     ?>
     <!DOCTYPE html>
@@ -167,23 +195,31 @@ if ($type_scan === 'port' && $port && is_numeric($port) && !$erreur_scan) {
     <?php
     exit;
 }
+
 // =======================
-// Génération du CSV
+// Analyse des hôtes : chaque hôte n'est scanné qu'une seule fois
 // =======================
-if (!$erreur_scan && !empty($liste_hotes)) {
-    $fichier_csv = __DIR__ . '/resultat/resultat_scan.csv';
-    $fp = fopen($fichier_csv, 'w');
-    fputcsv($fp, ['IP', 'OS', 'Ports ouverts (service)']);
+
+$resultats = [];
+if (!$erreur_scan) {
     foreach ($liste_hotes as $adresse_ip) {
-        $os = detecterOS($adresse_ip);
-        $ports = detecterPortsOuverts($adresse_ip);
-        $ports_str = implode(', ', array_map(fn($p) => $p['port'] . ' (' . $p['service'] . ')', $ports));
-        fputcsv($fp, [$adresse_ip, $os, $ports_str]);
+        $resultats[$adresse_ip] = analyserHote($adresse_ip);
     }
-    fclose($fp);
 }
+$total_ports = array_sum(array_map(fn($r) => count($r['ports']), $resultats));
 
-
+// Enregistrement du rapport CSV hors du dossier web (téléchargement via telecharger.php)
+if ($resultats) {
+    $fp = @fopen(FICHIER_RAPPORT, 'w');
+    if ($fp) {
+        fputcsv($fp, ['IP', 'OS', 'Ports ouverts (service)']);
+        foreach ($resultats as $adresse_ip => $r) {
+            $ports_str = implode(', ', array_map(fn($p) => $p['port'] . ' (' . $p['service'] . ')', $r['ports']));
+            fputcsv($fp, [$adresse_ip, celluleCsv($r['os']), celluleCsv($ports_str)]);
+        }
+        fclose($fp);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="fr" class="h-100">
@@ -208,7 +244,7 @@ if (!$erreur_scan && !empty($liste_hotes)) {
             <div class="ms-auto d-flex align-items-center">
                 <div class="vr bg-white opacity-25 d-none d-lg-block me-3" style="height: 24px;"></div>
                 <span class="text-white">
-                    <i class="bi bi-pc-display"></i> <?= count($liste_hotes ?? []) ?> hôtes
+                    <i class="bi bi-pc-display"></i> <?= count($resultats) ?> hôte(s)
                 </span>
             </div>
         </div>
@@ -234,11 +270,14 @@ if (!$erreur_scan && !empty($liste_hotes)) {
                 <a href="index.php" class="btn btn-outline-secondary btn-lg">
                     <i class="bi bi-arrow-left"></i> Retour
                 </a>
-                <a href="resultat/resultat_scan.csv" download class="btn btn-success btn-lg">
+                <?php if ($resultats): ?>
+                <a href="telecharger.php" class="btn btn-success btn-lg">
                     <i class="bi bi-file-earmark-spreadsheet"></i> Télécharger CSV
                 </a>
+                <?php endif; ?>
             </div>
 
+            <?php if ($resultats): ?>
             <!-- Résumé du scan -->
             <div class="alert alert-info border-0 shadow-sm mb-4" role="alert">
                 <div class="d-flex align-items-center">
@@ -250,8 +289,8 @@ if (!$erreur_scan && !empty($liste_hotes)) {
                     <div>
                         <h4 class="alert-heading fw-bold mb-1">Résumé du scan</h4>
                         <p class="mb-0 opacity-75">
-                            <span class="badge bg-primary rounded-pill me-2"><?= count($liste_hotes ?? []) ?> hôtes</span>
-                            <span class="badge bg-secondary rounded-pill me-2"><?= array_sum(array_map(fn($h) => count(detecterPortsOuverts($h)), $liste_hotes)) ?> ports ouverts</span>
+                            <span class="badge bg-primary rounded-pill me-2"><?= count($resultats) ?> hôte(s)</span>
+                            <span class="badge bg-secondary rounded-pill me-2"><?= $total_ports ?> port(s) ouvert(s)</span>
                             <span class="badge bg-success rounded-pill">Scan terminé</span>
                         </p>
                     </div>
@@ -269,9 +308,9 @@ if (!$erreur_scan && !empty($liste_hotes)) {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($liste_hotes as $adresse_ip): 
-                            $os = detecterOS($adresse_ip);
-                            $ports = detecterPortsOuverts($adresse_ip);
+                        <?php foreach ($resultats as $adresse_ip => $r):
+                            $os = $r['os'];
+                            $ports = $r['ports'];
                             $ports_str = empty($ports)
                                 ? '<span class="text-muted">Aucun</span>'
                                 : implode('<br>', array_map(fn($p) => '<span class="badge bg-success me-1">TCP ' . htmlspecialchars($p['port']) . '</span> <span class="text-muted small">' . htmlspecialchars($p['service']) . '</span>', $ports));
@@ -293,6 +332,7 @@ if (!$erreur_scan && !empty($liste_hotes)) {
                 </table>
             </div>
             <!-- Fin du tableau -->
+            <?php endif; ?>
         </div>
     </main>
 
@@ -313,7 +353,6 @@ if (!$erreur_scan && !empty($liste_hotes)) {
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/scan.js"></script>
 </body>
 </html>
 

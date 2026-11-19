@@ -1,34 +1,7 @@
 <?php
-// ===============================
-// 1. SÉCURITÉ ET PRÉPARATION DES DONNÉES
-// ===============================
-
-// Démarre une nouvelle session ou reprend la session existante.
-// Cela permet de gérer l'authentification et de conserver les informations de l'utilisateur entre les pages.
-session_start();
-
-// Vérifie si l'utilisateur est authentifié en consultant la variable de session 'authenticated'.
-// Si l'utilisateur n'est pas connecté, il est redirigé vers la page de connexion pour empêcher l'accès non autorisé.
-if (!isset($_SESSION['est_authentifie']) || $_SESSION['est_authentifie'] !== true) {
-    header('Location: login.php');
-    exit;
-}
-
-// Prépare un tableau pour stocker les résultats des scans réseau.
-$donnees_scans = [];
-
-// Définit le chemin du fichier CSV contenant les résultats des scans précédents.
-$fichier_csv = "resultat/resultat_scan.csv";
-
-// Si le fichier de résultats existe, lit son contenu et le convertit en tableau associatif.
-// Chaque ligne du CSV correspond à un scan, avec des colonnes pour l'IP, l'OS, les ports, etc.
-if (file_exists($fichier_csv)) {
-    $lignes = array_map("str_getcsv", file($fichier_csv)); // Lit chaque ligne du fichier CSV.
-    $entetes = array_shift($lignes); // Récupère la première ligne comme en-têtes de colonnes.
-    foreach ($lignes as $ligne) {
-        $donnees_scans[] = array_combine($entetes, $ligne); // Associe chaque valeur à son en-tête pour chaque scan.
-    }
-}
+require __DIR__ . '/inc/securite.php';
+require __DIR__ . '/config.php';
+exigerConnexion();
 ?>
 <!DOCTYPE html>
 <html lang="fr" class="h-100">
@@ -36,7 +9,7 @@ if (file_exists($fichier_csv)) {
     <meta charset="UTF-8">
     <title>Surveillance Réseau - Scanner</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Scanner réseau avancé pour la détection des systèmes, services et analyse de sécurité en temps réel.">
+    <meta name="description" content="Scanner réseau avancé pour la détection des systèmes, services et ports ouverts d'un réseau local.">
     <meta name="theme-color" content="#0d6efd">
     <meta name="author" content="BUT RT1">
     <!-- Bootstrap CSS pour le style général -->
@@ -88,10 +61,14 @@ if (file_exists($fichier_csv)) {
                 <div class="row justify-content-center">
                     <div class="col-lg-8 text-center animate__animated animate__fadeInUp">
                         <h1 class="display-4 fw-bold mb-4">Scanner réseau avancé</h1>
-                        <p class="lead mb-4 opacity-75">Détectez et analysez votre infrastructure réseau en temps réel</p>
+                        <p class="lead mb-4 opacity-75">Inventoriez les hôtes, systèmes et services de votre réseau local</p>
                         
                         <!-- Formulaire de scan réseau -->
-                        <form action="scan.php" method="GET" class="mb-4">
+                        <form action="scan.php" method="POST" class="mb-4">
+                            <?= champCsrf() ?>
+                            <input type="hidden" name="reseau" value="<?= htmlspecialchars(RESEAU_DEFAUT) ?>">
+                            <div class="row g-3">
+                                <div class="col-12">
 
                                     <!-- Choix du type de scan (radio boutons) -->
                                     <div class="btn-group w-100" role="group" aria-label="Type de scan">
@@ -120,7 +97,7 @@ if (file_exists($fichier_csv)) {
                                                 id="champIp"
                                                 name="ip"
                                                 class="form-control border-0 py-3 champ-formulaire"
-                                                placeholder="ex: 10.129.59.0"
+                                                placeholder="ex : 192.168.1.10"
                                                 pattern="^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
                                                 required
                                             />
@@ -131,7 +108,6 @@ if (file_exists($fichier_csv)) {
                                     </div>
                                     <!-- Champ pour scan réseau complet -->
                                     <div id="champScanReseau" class="w-100 text-center" style="display:none; max-width:1000px; margin: 0 auto;">
-                                        <input type="hidden" name="reseau" value="10.129.59.0/24">
                                         <button type="submit" class="btn btn-light btn-lg w-100 py-3 rounded-3 shadow-sm hover-lift">
                                             <i class="bi bi-hdd-network me-2"></i> Scanner tout le réseau
                                         </button>
@@ -144,8 +120,7 @@ if (file_exists($fichier_csv)) {
                                                 <i class="bi bi-search"></i> Scanner ce port
                                             </button>
                                         </div>
-                                        <input type="hidden" name="reseau" value="10.129.59.0/24">
-                                        <small class="text-white">Scanne un port précis sur la plage réseau sélectionnée.</small>
+                                        <small class="text-white">Scanne un port précis sur le réseau <?= htmlspecialchars(RESEAU_DEFAUT) ?>.</small>
                                     </div>
                                 </div>
                             </div>
@@ -168,32 +143,32 @@ if (file_exists($fichier_csv)) {
                             <div class="display-4 text-primary mb-3">
                                 <i class="bi bi-shield-check"></i>
                             </div>
-                            <h3 class="h5 card-title">Sécurité Renforcée</h3>
-                            <p class="card-text text-muted">Analysez votre réseau pour détecter les vulnérabilités potentielles</p>
+                            <h3 class="h5 card-title">Services exposés</h3>
+                            <p class="card-text text-muted">Repérez les ports ouverts et les services qui écoutent sur chaque machine</p>
                         </div>
                     </div>
                 </div>
-                <!-- Carte : Analyse en temps réel -->
+                <!-- Carte : Identification du système -->
                 <div class="col-md-4">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-body text-center">
                             <div class="display-4 text-success mb-3">
-                                <i class="bi bi-graph-up"></i>
+                                <i class="bi bi-pc-display"></i>
                             </div>
-                            <h3 class="h5 card-title">Analyse en Temps Réel</h3>
-                            <p class="card-text text-muted">Surveillez les performances et l'état de votre réseau en direct</p>
+                            <h3 class="h5 card-title">Systèmes identifiés</h3>
+                            <p class="card-text text-muted">Obtenez le système d'exploitation probable de chaque hôte actif</p>
                         </div>
                     </div>
                 </div>
-                <!-- Carte : Historique détaillé -->
+                <!-- Carte : Export CSV -->
                 <div class="col-md-4">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-body text-center">
                             <div class="display-4 text-info mb-3">
-                                <i class="bi bi-database-check"></i>
+                                <i class="bi bi-file-earmark-spreadsheet"></i>
                             </div>
-                            <h3 class="h5 card-title">Historique Détaillé</h3>
-                            <p class="card-text text-muted">Accédez à l'historique complet des analyses précédentes</p>
+                            <h3 class="h5 card-title">Export CSV</h3>
+                            <p class="card-text text-muted">Téléchargez les résultats du dernier scan pour les analyser ailleurs</p>
                         </div>
                     </div>
                 </div>
@@ -214,16 +189,18 @@ if (file_exists($fichier_csv)) {
                         </div>
                         <div class="col-md-4">
                             <h6><i class="bi bi-2-circle me-2"></i>Scanner le Réseau</h6>
-                            <p class="small text-muted">Utilisez l'option "Réseau complet" pour analyser tous les hôtes de votre réseau local.</p>
+                            <p class="small text-muted">Utilisez l'option "Réseau complet" pour analyser tous les hôtes du réseau <?= htmlspecialchars(RESEAU_DEFAUT) ?>.</p>
                         </div>
                         <div class="col-md-4">
                             <h6><i class="bi bi-3-circle me-2"></i>Analyser les Résultats</h6>
-                            <p class="small text-muted">Consultez les résultats détaillés pour chaque scan dans l'historique des analyses.</p>
+                            <p class="small text-muted">Consultez les résultats détaillés de chaque hôte et téléchargez-les au format CSV.</p>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
+
+    </main>
 
     <!-- ===============================
          10. Footer

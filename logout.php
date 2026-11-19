@@ -1,5 +1,11 @@
 <?php
-session_start();
-session_destroy(); // Supprime toutes les données de session
-header("Location: login.php"); // Redirige vers la page de connexion
+require __DIR__ . '/inc/securite.php';
+
+// Supprime les données et le cookie de session
+$_SESSION = [];
+$params = session_get_cookie_params();
+setcookie(session_name(), '', time() - 3600, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+session_destroy();
+
+header('Location: login.php');
 exit;
