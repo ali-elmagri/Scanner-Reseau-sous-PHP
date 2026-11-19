@@ -1,1 +1,253 @@
+/* Fond dégradé pour la page de login */
+.fond-degrade {
+    background: linear-gradient(135deg, #f8fafc 0%, #e0e7ef 100%);
+    min-height: 100vh;
+}
 
+/* --- Améliorations pour la page de login --- */
+
+/* Centrage vertical et horizontal de la boîte de connexion */
+body.page-login {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #e0e7ef 0%, #f8fafc 100%);
+}
+
+/* Boîte de connexion stylisée */
+.boite-connexion {
+    max-width: 420px; /* Agrandit la largeur maximale */
+    width: 100%;
+    padding: 2.5rem 2rem; /* Un peu plus d'espace intérieur */
+    border-radius: 1rem;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(13,110,253,0.08);
+    text-align: center;
+}
+
+/* Titre de connexion */
+.boite-connexion h2 {
+    font-weight: 700;
+    color: #0d6efd;
+    margin-bottom: 1.5rem;
+}
+
+/* Champs de formulaire */
+.champ-formulaire,
+.boite-connexion input[type="text"],
+.boite-connexion input[type="password"] {
+    width: 90%; /* Agrandit la largeur des champs */
+    min-width: 140px;
+    max-width: 320px;
+    padding: 0.8rem 1.1rem;
+    margin-bottom: 1.2rem;
+    border: 1px solid #e0e7ef;
+    border-radius: 0.5rem;
+    background: #f6f8fa;
+    font-size: 1.08rem;
+    transition: border-color 0.2s;
+    display: block;
+}
+.champ-formulaire:focus,
+.boite-connexion input[type="text"]:focus,
+.boite-connexion input[type="password"]:focus {
+    border-color: #0d6efd;
+    background: #fff;
+    outline: none;
+}
+
+/* Bouton de connexion */
+.bouton-principal,
+.boite-connexion input[type="submit"] {
+    width: 100%;
+    padding: 0.7rem 0;
+    background: #0d6efd;
+    color: #fff;
+    border: none;
+    border-radius: 2rem;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.bouton-principal:hover,
+.boite-connexion input[type="submit"]:hover {
+    background: #084298;
+}
+
+/* Nouveau bouton jaune */
+.bouton-jaune {
+    background: #ffc107 !important;
+    color: #212529 !important;
+    border: none !important;
+    border-radius: 2rem;
+    font-weight: 600;
+    font-size: 1rem;
+    transition: background 0.2s;
+}
+.bouton-jaune:hover,
+.bouton-jaune:focus {
+    background: #e0a800 !important;
+    color: #212529 !important;
+}
+
+/* Message d'erreur */
+.boite-connexion .message-erreur,
+.alert-danger {
+    background: #ffeaea;
+    color: #dc3545;
+    border: none;
+    border-radius: 0.75rem;
+    padding: 0.7rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 1rem;
+}
+
+/* Placeholder stylé */
+.boite-connexion input::placeholder {
+    color: #b0b8c1;
+    opacity: 1;
+}
+
+/* Icône utilisateur */
+.icone-login {
+    font-size: 2.5rem;
+    color: #0d6efd;
+    margin-bottom: 1rem;
+    display: block;
+}
+
+/* Navbar */
+.navbar {
+    border-radius: 0 0 1rem 1rem;
+}
+.navbar .navbar-brand {
+    font-size: 1.4rem;
+    font-weight: bold;
+}
+.navbar .nav-link.active, .navbar .nav-link {
+    color: #212529 !important;
+    font-weight: 500;
+}
+
+/* Cartes et ombres */
+.card {
+    border-radius: 1rem;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+}
+.card-title {
+    font-weight: 600;
+}
+
+/* Alertes */
+.alert {
+    border-radius: 1rem;
+    font-size: 1rem;
+}
+.alert-info {
+    background: #e9f5ff;
+    color: #0d6efd;
+    border: none;
+}
+.alert-danger {
+    background: #ffeaea;
+    color: #dc3545;
+    border: none;
+    border-radius: 0.75rem;
+    padding: 0.7rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 1rem;
+}
+.alert-warning {
+    background: #fff8e1;
+    color: #856404;
+    border: none;
+}
+
+/* Progress bar */
+.progress {
+    border-radius: 1rem;
+    background: #e0e7ef;
+}
+.progress-bar {
+    border-radius: 1rem;
+}
+
+/* Accordéon */
+.accordion-button {
+    border-radius: 0.75rem !important;
+    font-weight: 500;
+}
+.accordion-item {
+    margin-bottom: 0.5rem;
+    background: #f8fafc;
+}
+
+/* Footer */
+.footer {
+    background: #f8fafc;
+    border-top: 1px solid #e0e7ef;
+    font-size: 0.95rem;
+}
+
+/* Utilitaires */
+.text-muted {
+    color: #6c757d !important;
+}
+.text-white {
+    color: #fff !important;
+}
+.text-dark {
+    color: #212529 !important;
+}
+.bg-light {
+    background: #f8fafc !important;
+}
+.bg-white {
+    background: #fff !important;
+}
+.rounded-pill {
+    border-radius: 50rem !important;
+}
+
+/* Responsive */
+@media (max-width: 576px) {
+    .card {
+        border-radius: 0.75rem;
+    }
+    .navbar {
+        border-radius: 0 0 0.75rem 0.75rem;
+    }
+}
+@media (max-width: 500px) {
+    .boite-connexion {
+        padding: 1.5rem 0.5rem;
+    }
+}
+
+.boite-connexion form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.boite-connexion label {
+    align-self: flex-start;
+    margin-bottom: 0.2rem;
+    font-weight: 500;
+    color: #0d6efd;
+    margin-left: 5%;
+}
+
+/* Allonger le champ de saisie IP dans machine unique */
+#champScanUnique .form-control {
+    min-width: 320px;
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    font-size: 1.15rem;
+}
